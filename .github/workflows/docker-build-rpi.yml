@@ -25,17 +25,23 @@ jobs:
       run: |
         # Create a simple Dockerfile for ARM building
         cat > Dockerfile << 'EOF'
-        FROM --platform=linux/arm/v6 rust:1.75-slim-bullseye
+        FROM debian:bullseye-slim
         
-        # Install dependencies
+        # Install Rust and dependencies
         RUN apt-get update && apt-get install -y \
+            curl \
             build-essential \
             libasound2-dev \
             libdbus-1-dev \
             pkg-config \
             libssl-dev \
             git \
+            cmake \
             && rm -rf /var/lib/apt/lists/*
+        
+        # Install Rust
+        RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+        ENV PATH="/root/.cargo/bin:${PATH}"
         
         WORKDIR /app
         COPY . .
@@ -51,8 +57,8 @@ jobs:
         RUN cp target/release/spotifyd /spotifyd-arm
         EOF
         
-        # Build the container (this does the compilation)
-        docker buildx build --platform linux/arm/v6 --load -t spotifyd-builder .
+        # Build the container for ARM (this does the compilation)
+        docker buildx build --platform linux/arm/v7 --load -t spotifyd-builder .
         
         # Extract the binary
         docker run --rm -v $(pwd):/output spotifyd-builder cp /spotifyd-arm /output/spotifyd-rpi-zero-w2
