@@ -26,22 +26,21 @@ jobs:
     
     - name: Install cross-compilation dependencies
       run: |
-        sudo apt-get update
-        sudo apt-get install -y \
-          gcc-arm-linux-gnueabihf \
-          libasound2-dev:armhf \
-          pkg-config \
-          libudev-dev:armhf
-        
-        # Add armhf architecture for cross-compilation
+        # Add armhf architecture first
         sudo dpkg --add-architecture armhf
         sudo apt-get update
         
-        # Install additional ARM libraries
+        # Install cross-compilation toolchain
+        sudo apt-get install -y \
+          gcc-arm-linux-gnueabihf \
+          pkg-config
+        
+        # Install ARM libraries
         sudo apt-get install -y \
           libasound2-dev:armhf \
           libssl-dev:armhf \
-          libdbus-1-dev:armhf
+          libdbus-1-dev:armhf \
+          libudev-dev:armhf
     
     - name: Set up cargo config for cross-compilation
       run: |
