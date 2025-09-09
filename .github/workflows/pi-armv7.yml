@@ -14,7 +14,6 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      # Force spotifyd to use librespot's dev branch (contains the track-availability fix)
       - name: Add Cargo patches for librespot dev
         run: |
           mkdir -p .cargo
@@ -35,10 +34,14 @@ jobs:
         with:
           targets: ${{ env.TARGET }}
 
-      # Jammy needs armhf repos from ports.ubuntu.com
-      - name: Enable armhf & add ports sources
+      # ---- KEY FIX ----
+      - name: Enable armhf & point ONLY to ports.ubuntu.com
         run: |
           sudo dpkg --add-architecture armhf
+          # Drop any armhf entries that may default to security.ubuntu.com
+          sudo sed -i.bak '/^\s*deb .* \[.*arch=armhf.*\]/d' /etc/apt/sources.list || true
+          sudo sed -i    '/^\s*deb .* armhf /d'               /etc/apt/sources.list || true
+          # Add proper armhf sources
           sudo tee /etc/apt/sources.list.d/armhf.list >/dev/null <<'EOF'
           deb [arch=armhf] http://ports.ubuntu.com/ jammy main universe multiverse restricted
           deb [arch=armhf] http://ports.ubuntu.com/ jammy-updates main universe multiverse restricted
@@ -46,6 +49,9 @@ jobs:
           deb [arch=armhf] http://ports.ubuntu.com/ jammy-backports main universe multiverse restricted
           EOF
           sudo apt-get update
+          # Sanity: show where armhf will be pulled from
+          grep -R --line-number 'ports.ubuntu.com' /etc/apt/sources.list.d/armhf.list
+          apt-cache policy | sed -n '1,120p'
 
       - name: Install cross deps (armhf toolchain & headers)
         run: |
@@ -66,34 +72,17 @@ jobs:
           echo "CC_armv7_unknown_linux_gnueabihf=arm-linux-gnueabihf-gcc" >> $GITHUB_ENV
           echo "RUSTFLAGS=-C codegen-units=1 -C opt-level=z" >> $GITHUB_ENV
 
-      # Make sure the librespot patches actually get used
       - name: Cargo update (apply patches)
         run: cargo update
 
-      # Optional but recommended: cache Cargo registry & target to speed retries
-      - name: Cache cargo registry
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
-      - name: Cache target
-        uses: actions/cache@v4
-        with:
-          path: target
-          key: ${{ runner.os }}-target-${{ env.TARGET }}-${{ hashFiles('**/Cargo.lock') }}
-
-      # Build for ARMv7 with ALSA backend (swap to pulseaudio_backend if you prefer)
-      - name: Build (ARMv7)
+      - name: Build (ARMv7, ALSA + MPRIS)
         run: |
           cargo build --release \
             --target $TARGET \
-            --features "pulseaudio_backend,dbus_mpris"
+            --features "alsa_backend,dbus_mpris"
 
       - name: Show librespot sources (sanity)
-        run: |
-          cargo tree --target $TARGET | grep -E 'librespot( |-)' || true
+        run: cargo tree --target $TARGET | grep -E 'librespot( |-)'
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
