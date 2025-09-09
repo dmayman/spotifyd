@@ -84,14 +84,14 @@ jobs:
         # Remove Cargo.lock to allow fresh dependency resolution
         rm -f Cargo.lock
         
-        # Update librespot dependencies to use dev branch with proper features
+        # Update librespot dependencies to use dev branch with rustls instead of native-tls
         # First, let's see what we're working with
         echo "Original Cargo.toml librespot dependencies:"
         grep -n "librespot" Cargo.toml || true
         
-        # Update all librespot dependencies to use git dev branch with native-tls
-        sed -i 's/librespot-\([a-z]*\) = { version = "[^"]*"[^}]*/librespot-\1 = { git = "https:\/\/github.com\/librespot-org\/librespot.git", branch = "dev", features = ["native-tls"]/g' Cargo.toml
-        sed -i 's/librespot = { version = "[^"]*"[^}]*/librespot = { git = "https:\/\/github.com\/librespot-org\/librespot.git", branch = "dev", features = ["native-tls"]/g' Cargo.toml
+        # Update all librespot dependencies to use git dev branch with rustls-tls-webpki-roots
+        sed -i 's/librespot-\([a-z]*\) = { version = "[^"]*"[^}]*/librespot-\1 = { git = "https:\/\/github.com\/librespot-org\/librespot.git", branch = "dev", default-features = false, features = ["rustls-tls-webpki-roots"]/g' Cargo.toml
+        sed -i 's/librespot = { version = "[^"]*"[^}]*/librespot = { git = "https:\/\/github.com\/librespot-org\/librespot.git", branch = "dev", default-features = false, features = ["rustls-tls-webpki-roots"]/g' Cargo.toml
         
         echo ""
         echo "Updated Cargo.toml librespot dependencies:"
