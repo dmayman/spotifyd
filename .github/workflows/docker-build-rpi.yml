@@ -1,0 +1,79 @@
+name: Build Spotifyd for Raspberry Pi (Simple Docker Approach)
+
+on:
+  push:
+    branches: [ main, master ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout spotifyd repo
+      uses: actions/checkout@v4
+    
+    - name: Set up QEMU for ARM emulation
+      uses: docker/setup-qemu-action@v3
+      with:
+        platforms: arm64,arm
+    
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v3
+    
+    - name: Build in ARM container
+      run: |
+        # Create a simple Dockerfile for ARM building
+        cat > Dockerfile << 'EOF'
+        FROM --platform=linux/arm/v6 rust:1.75-slim-bullseye
+        
+        # Install dependencies
+        RUN apt-get update && apt-get install -y \
+            build-essential \
+            libasound2-dev \
+            libdbus-1-dev \
+            pkg-config \
+            libssl-dev \
+            git \
+            && rm -rf /var/lib/apt/lists/*
+        
+        WORKDIR /app
+        COPY . .
+        
+        # Update to use librespot dev branch (same as local approach)
+        RUN sed -i 's/librespot = { version = "[^"]*"/librespot = { git = "https:\/\/github.com\/librespot-org\/librespot.git", branch = "dev"/' Cargo.toml
+        RUN rm -f Cargo.lock
+        
+        # Build just like you would locally
+        RUN cargo build --release --no-default-features --features "alsa_backend,dbus_mpris"
+        
+        # Copy binary to a known location
+        RUN cp target/release/spotifyd /spotifyd-arm
+        EOF
+        
+        # Build the container (this does the compilation)
+        docker buildx build --platform linux/arm/v6 --load -t spotifyd-builder .
+        
+        # Extract the binary
+        docker run --rm -v $(pwd):/output spotifyd-builder cp /spotifyd-arm /output/spotifyd-rpi-zero-w2
+    
+    - name: Strip binary and create info
+      run: |
+        # Install ARM tools to strip the binary
+        sudo apt-get update && sudo apt-get install -y binutils-arm-linux-gnueabihf
+        arm-linux-gnueabihf-strip spotifyd-rpi-zero-w2
+        
+        # Create info file
+        echo "Built with Docker ARM emulation" > build_info.txt
+        echo "Target: Raspberry Pi Zero W 2 (ARMv6)" >> build_info.txt
+        echo "Features: alsa_backend,dbus_mpris" >> build_info.txt
+        echo "Librespot: Latest dev branch" >> build_info.txt
+        echo "Size: $(ls -lh spotifyd-rpi-zero-w2 | awk '{print $5}')" >> build_info.txt
+    
+    - name: Upload binary
+      uses: actions/upload-artifact@v4
+      with:
+        name: spotifyd-rpi-zero-w2-docker-${{ github.sha }}
+        path: |
+          spotifyd-rpi-zero-w2
+          build_info.txt
