@@ -1,0 +1,79 @@
+name: build-armv7-spotifyd
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    env:
+      TARGET: armv7-unknown-linux-gnueabihf
+      CARGO_TERM_COLOR: always
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # Inject the librespot "dev" patches so we pick up the August 2025 fixes
+      - name: Add Cargo patches for librespot dev
+        run: |
+          mkdir -p .cargo
+          cat > .cargo/config.toml <<'EOF'
+          [patch.crates-io]
+          librespot               = { git = "https://github.com/librespot-org/librespot", branch = "dev" }
+          librespot-core          = { git = "https://github.com/librespot-org/librespot", branch = "dev" }
+          librespot-playback      = { git = "https://github.com/librespot-org/librespot", branch = "dev" }
+          librespot-protocol      = { git = "https://github.com/librespot-org/librespot", branch = "dev" }
+          librespot-metadata      = { git = "https://github.com/librespot-org/librespot", branch = "dev" }
+          librespot-audio         = { git = "https://github.com/librespot-org/librespot", branch = "dev" }
+          librespot-discovery     = { git = "https://github.com/librespot-org/librespot", branch = "dev" }
+          librespot-connect       = { git = "https://github.com/librespot-org/librespot", branch = "dev" }
+          EOF
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ env.TARGET }}
+
+      # Cross-compile toolchain + armhf headers (ALSA, OpenSSL, Pulse, DBus)
+      - name: Install cross deps (ARMv7/armhf)
+        run: |
+          sudo dpkg --add-architecture armhf
+          sudo apt-get update
+          sudo apt-get install -y \
+            gcc-arm-linux-gnueabihf \
+            pkg-config-arm-linux-gnueabihf \
+            libasound2-dev:armhf \
+            libssl-dev:armhf \
+            libpulse-dev:armhf \
+            libdbus-1-dev:armhf
+
+      # Tell Cargo which linker/pkg-config to use for the target
+      - name: Configure cross env
+        run: |
+          echo "PKG_CONFIG_ALLOW_CROSS=1" >> $GITHUB_ENV
+          echo "PKG_CONFIG_PATH=/usr/lib/arm-linux-gnueabihf/pkgconfig" >> $GITHUB_ENV
+          echo "PKG_CONFIG_LIBDIR=/usr/lib/arm-linux-gnueabihf/pkgconfig" >> $GITHUB_ENV
+          echo "CARGO_TARGET_ARMV7_UNKNOWN_LINUX_GNUEABIHF_LINKER=arm-linux-gnueabihf-gcc" >> $GITHUB_ENV
+          echo "CC_armv7_unknown_linux_gnueabihf=arm-linux-gnueabihf-gcc" >> $GITHUB_ENV
+          # Tiny builds, fewer codegen units = less CI memory thrash
+          echo "RUSTFLAGS=-C codegen-units=1 -C opt-level=z" >> $GITHUB_ENV
+
+      # Refresh lockfile so the patches are actually used
+      - name: Cargo update (apply patches)
+        run: cargo update
+
+      # Build with ALSA + MPRIS (safe default on headless Pi). Swap to pulseaudio_backend if you prefer.
+      - name: Build (ARMv7)
+        run: |
+          cargo build --release \
+            --target $TARGET \
+            --features "alsa_backend,dbus_mpris"
+
+      - name: Show which librespot crates were used (sanity)
+        run: |
+          cargo tree --target $TARGET | grep -E 'librespot( |-)' || true
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: spotifyd-armv7
+          path: target/${{ env.TARGET }}/release/spotifyd
