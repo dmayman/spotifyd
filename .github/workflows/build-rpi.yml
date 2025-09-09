@@ -26,8 +26,14 @@ jobs:
     
     - name: Install cross-compilation dependencies
       run: |
-        # Add armhf architecture first
+        # Add armhf architecture and configure sources
         sudo dpkg --add-architecture armhf
+        
+        # Update sources.list to include ports.ubuntu.com for armhf
+        echo "deb [arch=armhf] http://ports.ubuntu.com/ubuntu-ports noble main universe" | sudo tee -a /etc/apt/sources.list
+        echo "deb [arch=armhf] http://ports.ubuntu.com/ubuntu-ports noble-updates main universe" | sudo tee -a /etc/apt/sources.list
+        echo "deb [arch=armhf] http://ports.ubuntu.com/ubuntu-ports noble-security main universe" | sudo tee -a /etc/apt/sources.list
+        
         sudo apt-get update
         
         # Install cross-compilation toolchain
