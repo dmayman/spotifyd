@@ -1,0 +1,131 @@
+name: Build Spotifyd for Raspberry Pi Zero W 2
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+  workflow_dispatch:  # Allow manual trigger
+
+env:
+  CARGO_TERM_COLOR: always
+  TARGET: arm-unknown-linux-gnueabihf
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout spotifyd repo
+      uses: actions/checkout@v4
+    
+    - name: Install Rust toolchain
+      uses: dtolnay/rust-toolchain@stable
+      with:
+        targets: arm-unknown-linux-gnueabihf
+    
+    - name: Install cross-compilation dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y \
+          gcc-arm-linux-gnueabihf \
+          libasound2-dev:armhf \
+          pkg-config \
+          libudev-dev:armhf
+        
+        # Add armhf architecture for cross-compilation
+        sudo dpkg --add-architecture armhf
+        sudo apt-get update
+        
+        # Install additional ARM libraries
+        sudo apt-get install -y \
+          libasound2-dev:armhf \
+          libssl-dev:armhf \
+          libdbus-1-dev:armhf
+    
+    - name: Set up cargo config for cross-compilation
+      run: |
+        mkdir -p ~/.cargo
+        cat > ~/.cargo/config.toml << EOF
+        [target.arm-unknown-linux-gnueabihf]
+        linker = "arm-linux-gnueabihf-gcc"
+        
+        [env]
+        PKG_CONFIG_ALLOW_CROSS = "1"
+        PKG_CONFIG_PATH = "/usr/lib/arm-linux-gnueabihf/pkgconfig"
+        BINDGEN_EXTRA_CLANG_ARGS = "--sysroot=/usr/arm-linux-gnueabihf"
+        EOF
+    
+    - name: Update Cargo.toml to use latest librespot dev
+      run: |
+        # Backup original Cargo.toml
+        cp Cargo.toml Cargo.toml.backup
+        
+        # Update librespot dependencies to use dev branch
+        sed -i 's/librespot = { version = "[^"]*"/librespot = { git = "https:\/\/github.com\/librespot-org\/librespot.git", branch = "dev"/' Cargo.toml
+        
+        # Also update individual librespot crates if they exist
+        sed -i 's/librespot-\([a-z]*\) = { version = "[^"]*"/librespot-\1 = { git = "https:\/\/github.com\/librespot-org\/librespot.git", branch = "dev"/' Cargo.toml
+        
+        echo "Updated Cargo.toml:"
+        cat Cargo.toml
+    
+    - name: Cache cargo dependencies
+      uses: actions/cache@v3
+      with:
+        path: |
+          ~/.cargo/registry
+          ~/.cargo/git
+          target
+        key: ${{ runner.os }}-cargo-${{ env.TARGET }}-${{ hashFiles('**/Cargo.lock') }}
+        restore-keys: |
+          ${{ runner.os }}-cargo-${{ env.TARGET }}-
+          ${{ runner.os }}-cargo-
+    
+    - name: Build spotifyd for Raspberry Pi Zero W 2
+      run: |
+        # Set environment variables for cross-compilation
+        export CC_arm_unknown_linux_gnueabihf=arm-linux-gnueabihf-gcc
+        export AR_arm_unknown_linux_gnueabihf=arm-linux-gnueabihf-ar
+        export CARGO_TARGET_ARM_UNKNOWN_LINUX_GNUEABIHF_LINKER=arm-linux-gnueabihf-gcc
+        export PKG_CONFIG_ALLOW_CROSS=1
+        export PKG_CONFIG_PATH="/usr/lib/arm-linux-gnueabihf/pkgconfig"
+        
+        # Build with dbus_mpris feature only
+        cargo build \
+          --release \
+          --target ${{ env.TARGET }} \
+          --no-default-features \
+          --features dbus_mpris
+    
+    - name: Strip binary
+      run: |
+        arm-linux-gnueabihf-strip target/${{ env.TARGET }}/release/spotifyd
+    
+    - name: Create artifact info
+      run: |
+        echo "Build completed at: $(date)" > build_info.txt
+        echo "Target: ${{ env.TARGET }}" >> build_info.txt
+        echo "Features: alsa_backend,dbus_mpris" >> build_info.txt
+        echo "Librespot: Latest dev branch (fixes Aug 2025 Spotify API issues)" >> build_info.txt
+        echo "Binary size: $(ls -lh target/${{ env.TARGET }}/release/spotifyd | awk '{print $5}')" >> build_info.txt
+        echo "SHA256: $(sha256sum target/${{ env.TARGET }}/release/spotifyd | awk '{print $1}')" >> build_info.txt
+    
+    - name: Upload spotifyd binary
+      uses: actions/upload-artifact@v3
+      with:
+        name: spotifyd-rpi-zero-w2-${{ github.sha }}
+        path: |
+          target/${{ env.TARGET }}/release/spotifyd
+          build_info.txt
+        retention-days: 30
+    
+    - name: Upload to release (if tag)
+      if: startsWith(github.ref, 'refs/tags/')
+      uses: softprops/action-gh-release@v1
+      with:
+        files: |
+          target/${{ env.TARGET }}/release/spotifyd
+          build_info.txt
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
