@@ -65,7 +65,7 @@ jobs:
         
         # Create info file
         echo "Built with Docker ARM emulation" > build_info.txt
-        echo "Target: Raspberry Pi Zero W 2 (ARMv6)" >> build_info.txt
+        echo "Target: Raspberry Pi Zero W 2 (ARMv7 compatible)" >> build_info.txt
         echo "Features: alsa_backend,dbus_mpris" >> build_info.txt
         echo "Librespot: Latest dev branch" >> build_info.txt
         echo "Size: $(ls -lh spotifyd-rpi-zero-w2 | awk '{print $5}')" >> build_info.txt
