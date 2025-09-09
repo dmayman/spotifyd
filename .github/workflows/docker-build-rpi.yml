@@ -25,6 +25,7 @@ jobs:
       run: cargo install cross --git https://github.com/cross-rs/cross
     
     - name: Update Cargo.toml to use latest librespot dev
+    - name: Update Cargo.toml to use latest librespot dev
       run: |
         # Backup original files
         cp Cargo.toml Cargo.toml.backup
