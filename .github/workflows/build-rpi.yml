@@ -77,17 +77,29 @@ jobs:
     
     - name: Update Cargo.toml to use latest librespot dev
       run: |
-        # Backup original Cargo.toml
+        # Backup original files
         cp Cargo.toml Cargo.toml.backup
+        cp Cargo.lock Cargo.lock.backup
+        
+        # Remove Cargo.lock to allow fresh dependency resolution
+        rm -f Cargo.lock
         
         # Update librespot dependencies to use dev branch
-        sed -i 's/librespot = { version = "[^"]*"/librespot = { git = "https:\/\/github.com\/librespot-org\/librespot.git", branch = "dev"/' Cargo.toml
+        # First, let's see what we're working with
+        echo "Original Cargo.toml librespot dependencies:"
+        grep -n "librespot" Cargo.toml || true
         
-        # Also update individual librespot crates if they exist
-        sed -i 's/librespot-\([a-z]*\) = { version = "[^"]*"/librespot-\1 = { git = "https:\/\/github.com\/librespot-org\/librespot.git", branch = "dev"/' Cargo.toml
+        # Update all librespot dependencies to use git dev branch
+        sed -i 's/librespot-\([a-z]*\) = { version = "[^"]*"/librespot-\1 = { git = "https:\/\/github.com\/librespot-org\/librespot.git", branch = "dev"/g' Cargo.toml
+        sed -i 's/librespot = { version = "[^"]*"/librespot = { git = "https:\/\/github.com\/librespot-org\/librespot.git", branch = "dev"/g' Cargo.toml
         
-        echo "Updated Cargo.toml:"
-        cat Cargo.toml
+        echo ""
+        echo "Updated Cargo.toml librespot dependencies:"
+        grep -n "librespot" Cargo.toml || true
+        
+        echo ""
+        echo "Diff of changes:"
+        diff -u Cargo.toml.backup Cargo.toml || true
     
     - name: Cache cargo dependencies
       uses: actions/cache@v3
