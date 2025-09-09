@@ -1,9 +1,12 @@
-name: Build Spotifyd for Raspberry Pi (Simple Docker Approach)
+name: Build Spotifyd for Raspberry Pi (Cross Tool)
 
 on:
   push:
     branches: [ main, master ]
   workflow_dispatch:
+
+env:
+  TARGET: arm-unknown-linux-gnueabihf
 
 jobs:
   build:
@@ -13,73 +16,78 @@ jobs:
     - name: Checkout spotifyd repo
       uses: actions/checkout@v4
     
-    - name: Set up QEMU for ARM emulation
-      uses: docker/setup-qemu-action@v3
+    - name: Install Rust toolchain
+      uses: dtolnay/rust-toolchain@stable
       with:
-        platforms: arm64,arm
+        targets: ${{ env.TARGET }}
     
-    - name: Set up Docker Buildx
-      uses: docker/setup-buildx-action@v3
+    - name: Install cross
+      run: cargo install cross --git https://github.com/cross-rs/cross
     
-    - name: Build in ARM container
+    - name: Update Cargo.toml to use latest librespot dev
       run: |
-        # Create a simple Dockerfile for ARM building
-        cat > Dockerfile << 'EOF'
-        FROM debian:bullseye-slim
+        # Backup original files
+        cp Cargo.toml Cargo.toml.backup
         
-        # Install Rust and dependencies
-        RUN apt-get update && apt-get install -y \
-            curl \
-            build-essential \
-            libasound2-dev \
-            libdbus-1-dev \
-            pkg-config \
-            libssl-dev \
-            git \
-            cmake \
-            && rm -rf /var/lib/apt/lists/*
+        # Remove Cargo.lock to allow fresh dependency resolution
+        rm -f Cargo.lock
         
-        # Install Rust
-        RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
-        ENV PATH="/root/.cargo/bin:${PATH}"
+        # Update librespot dependencies to use dev branch
+        echo "Original Cargo.toml librespot dependencies:"
+        grep -n "librespot" Cargo.toml || true
         
-        WORKDIR /app
-        COPY . .
+        # Simple replacement to use git dev branch
+        sed -i 's/librespot = { version = "[^"]*"/librespot = { git = "https:\/\/github.com\/librespot-org\/librespot.git", branch = "dev"/' Cargo.toml
         
-        # Update to use librespot dev branch (same as local approach)
-        RUN sed -i 's/librespot = { version = "[^"]*"/librespot = { git = "https:\/\/github.com\/librespot-org\/librespot.git", branch = "dev"/' Cargo.toml
-        RUN rm -f Cargo.lock
-        
-        # Build just like you would locally
-        RUN cargo build --release --no-default-features --features "alsa_backend,dbus_mpris"
-        
-        # Copy binary to a known location
-        RUN cp target/release/spotifyd /spotifyd-arm
-        EOF
-        
-        # Build the container for ARM (this does the compilation)
-        docker buildx build --platform linux/arm/v7 --load -t spotifyd-builder .
-        
-        # Extract the binary
-        docker run --rm -v $(pwd):/output spotifyd-builder cp /spotifyd-arm /output/spotifyd-rpi-zero-w2
+        echo ""
+        echo "Updated Cargo.toml:"
+        grep -n "librespot" Cargo.toml || true
     
-    - name: Strip binary and create info
+    - name: Cache cross dependencies
+      uses: actions/cache@v4
+      with:
+        path: |
+          ~/.cargo/registry
+          ~/.cargo/git
+          target
+        key: ${{ runner.os }}-cross-${{ env.TARGET }}-${{ hashFiles('**/Cargo.lock') }}
+        restore-keys: |
+          ${{ runner.os }}-cross-${{ env.TARGET }}-
+          ${{ runner.os }}-cross-
+    
+    - name: Build spotifyd with cross
       run: |
-        # Install ARM tools to strip the binary
-        sudo apt-get update && sudo apt-get install -y binutils-arm-linux-gnueabihf
-        arm-linux-gnueabihf-strip spotifyd-rpi-zero-w2
-        
-        # Create info file
-        echo "Built with Docker ARM emulation" > build_info.txt
-        echo "Target: Raspberry Pi Zero W 2 (ARMv7 compatible)" >> build_info.txt
+        cross build \
+          --target ${{ env.TARGET }} \
+          --release \
+          --no-default-features \
+          --features "alsa_backend,dbus_mpris"
+    
+    - name: Create build info
+      run: |
+        echo "Build completed at: $(date)" > build_info.txt
+        echo "Target: ${{ env.TARGET }}" >> build_info.txt
         echo "Features: alsa_backend,dbus_mpris" >> build_info.txt
-        echo "Librespot: Latest dev branch" >> build_info.txt
-        echo "Size: $(ls -lh spotifyd-rpi-zero-w2 | awk '{print $5}')" >> build_info.txt
+        echo "Librespot: Latest dev branch (fixes Aug 2025 Spotify API issues)" >> build_info.txt
+        echo "Cross tool version: $(cross --version)" >> build_info.txt
+        echo "Binary size: $(ls -lh target/${{ env.TARGET }}/release/spotifyd | awk '{print $5}')" >> build_info.txt
+        echo "SHA256: $(sha256sum target/${{ env.TARGET }}/release/spotifyd | awk '{print $1}')" >> build_info.txt
     
-    - name: Upload binary
+    - name: Upload spotifyd binary
       uses: actions/upload-artifact@v4
       with:
-        name: spotifyd-rpi-zero-w2-docker-${{ github.sha }}
+        name: spotifyd-rpi-zero-w2-cross-${{ github.sha }}
         path: |
-          spotifyd-rpi-zero-w2
+          target/${{ env.TARGET }}/release/spotifyd
           build_info.txt
+        retention-days: 30
+    
+    - name: Upload to release (if tag)
+      if: startsWith(github.ref, 'refs/tags/')
+      uses: softprops/action-gh-release@v1
+      with:
+        files: |
+          target/${{ env.TARGET }}/release/spotifyd
+          build_info.txt
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
