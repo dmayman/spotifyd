@@ -29,7 +29,11 @@ jobs:
         # Add armhf architecture
         sudo dpkg --add-architecture armhf
         
-        # Completely replace sources.list with arch-specific entries
+        # Remove all existing apt sources to start clean
+        sudo rm -f /etc/apt/sources.list
+        sudo rm -f /etc/apt/sources.list.d/*
+        
+        # Create fresh sources.list with proper architecture separation
         sudo tee /etc/apt/sources.list << 'EOF'
         # AMD64 repositories
         deb [arch=amd64] http://archive.ubuntu.com/ubuntu/ noble main restricted universe multiverse
@@ -37,7 +41,7 @@ jobs:
         deb [arch=amd64] http://archive.ubuntu.com/ubuntu/ noble-backports main restricted universe multiverse
         deb [arch=amd64] http://security.ubuntu.com/ubuntu/ noble-security main restricted universe multiverse
         
-        # ARMHF repositories
+        # ARMHF repositories - using ports.ubuntu.com for ALL armhf packages
         deb [arch=armhf] http://ports.ubuntu.com/ubuntu-ports/ noble main restricted universe multiverse
         deb [arch=armhf] http://ports.ubuntu.com/ubuntu-ports/ noble-updates main restricted universe multiverse
         deb [arch=armhf] http://ports.ubuntu.com/ubuntu-ports/ noble-backports main restricted universe multiverse
